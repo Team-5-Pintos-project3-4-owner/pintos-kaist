@@ -169,8 +169,11 @@ remove (const char *file) {
 // Parent~child struct 구현 
 
 int open (const char *file){
+	// printf("hi!\n");
+	if (file == NULL){ // open_null test case 통과용..? check_address 대신
+		exit(-1);
+	}
 	// check_address(file); // 파일 유효 주소 확인
-	printf("hi!\n");
 	lock_acquire(&filesys_lock);
 	struct file *open_file = filesys_open(file); // 파일 오픈 및 파일 명 지정
 	if (open_file == NULL){ // 오픈 파일 명 값 확인
@@ -202,10 +205,10 @@ int filesize(int fd){
 int read (int fd, void *buffer, unsigned size){
 
 	// check_address(buffer); // 버퍼 유효주소 확인
-	if (is_writable((uint64_t *)buffer) == 0)
-	{
-		exit(-1);
-	}
+	// if (is_writable((uint64_t *)buffer) == 0)
+	// {
+	// 	exit(-1);
+	// }
 
 	struct file *get_file = process_get_file(fd); // 파일 가져오기
 	int key_length = 0;
@@ -240,9 +243,9 @@ int read (int fd, void *buffer, unsigned size){
 int write (int fd, const void *buffer, unsigned size){
 	// check_address(buffer); // 버퍼 유효주소 확인
 	// if (is_writable((uint64_t *)buffer) == 0)
-	{
-		exit(-1);
-	}
+	// {
+	// 	exit(-1);
+	// }
 	struct file *get_file = process_get_file(fd); // 파일 가져오기
 
 	int key_length;
@@ -305,6 +308,7 @@ void close (int fd){
 
 
 int fork (const char *thread_name, struct intr_frame *f){
+	printf("fork, thread_name %s\n", thread_name);
 	return process_fork(thread_name, f);
 };
 
@@ -324,12 +328,13 @@ int exec (const char *cmd_line){
 }
 
 int wait (int pid){
+	printf("wait, pid %d\n", pid);
 	return process_wait(pid);
 }
 
 void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
 {
-	/*
+	/* fail 조건
 	1) fd로 열린 파일의 길이가 0인 경우
 	2) addr이 0인 경우
 	3) length가 0인 경우
@@ -360,7 +365,7 @@ void munmap(void *addr)
 {
 	// [TBD] dirty 한지 확인
 	if (spt_find_page(&thread_current()->spt, addr) != NULL){
-		// printf("문맵~2\n");
+		// printf("문맵~\n");
 		do_munmap(addr);
 	}
 }

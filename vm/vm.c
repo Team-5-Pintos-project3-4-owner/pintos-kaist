@@ -62,7 +62,7 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
 		} //[3-1?] ??
 		else if (type == VM_FILE)
 		{
-			printf("aux: %p\n", aux);
+			// printf("aux: %p\n", aux);
 			uninit_new(new_page, upage, init, type, aux, file_backed_initializer);
 		}
 		// else if (type == VM_MARKER_0){
@@ -292,38 +292,38 @@ bool vm_do_claim_page(struct page *page)
 	struct frame *frame = vm_get_frame();
 	int result = false;
 	struct thread *t = thread_current();
-	bool writable;
-	printf("===========vm_do_claim_page: start=============\n");
-	printf("[vm_do_claim_page] tid: %d\n", thread_current()->tid);
+	bool writable = 1;
+	// printf("===========vm_do_claim_page: start=============\n");
+	// printf("[vm_do_claim_page] tid: %d\n", thread_current()->tid);
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
-	printf("type: %d\n", page->operations->type);
+	// printf("type: %d\n", page->operations->type);
 
-	struct uninit_page *uninit = &page->uninit;
-	void *aux = uninit->aux;
-	if (uninit->type == VM_FILE){
-		struct file_info *aux_file_info = (struct file_info *)aux;
-		writable = aux_file_info->writable;
-		printf("temp writable: %d\n", aux_file_info->writable);
-	}
-	else{
-		writable = 1;
-	}
+	// struct uninit_page *uninit = &page->uninit;
+	// void *aux = uninit->aux;
+	// if (uninit->type == VM_FILE){
+	// 	struct file_info *aux_file_info = (struct file_info *)aux;
+	// 	writable = aux_file_info->writable;
+	// 	printf("temp writable: %d\n", aux_file_info->writable);
+	// }
+	// else{
+	// 	writable = 1;
+	// }
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// [3-1?] wr 세팅을 1로 하는게 맞나?
 
 	if (!install_page(page->va, frame->kva, writable))
 	{
-		printf("실 패!\n");
+		// printf("실 패!\n");
 		return false;
 	}
 	// printf("pte: %p\n", *( (uint64_t *) page->va));
 	// printf("[vm_do_claim_page] set_page 성공 \n");
 
 	result = swap_in(page, frame->kva);
-	printf("[vm_do_claim_page] swap in 성공 \n");
+	// printf("[vm_do_claim_page] swap in 성공 \n");
 	return result;
 }
 
@@ -363,12 +363,16 @@ void supplemental_copy_entry(struct hash_elem *e, void *aux){
 
 	struct page *p = hash_entry(e, struct page, h_elem);
 	if (p->operations->type == VM_UNINIT){
+		printf("[spt entry]: UNINIT\n");
 		vm_alloc_page_with_initializer(p->uninit.type, p->va, 1, lazy_load_segment, p->uninit.aux);
 	}
 	else if (p->operations->type == VM_ANON) {
+		printf("[spt entry]: ANON\n");
 		vm_alloc_page(VM_ANON, p->va, 1);
 		struct page *child_p = spt_find_page(&thread_current()->spt, p->va);
-		
+		child_p->uninit.aux = p->uninit.aux;
+		anon_initializer(child_p, VM_ANON, child_p->frame->kva);
+
 		vm_claim_page(p->va);
 		// printf("[spt entry] p kva: %p\n", p->frame->kva);
 		// printf("[spt entry] p va: %p\n", p->frame->page->va);
@@ -380,14 +384,33 @@ void supplemental_copy_entry(struct hash_elem *e, void *aux){
 		
 	}
 	else if (p->operations->type == VM_FILE){
-		struct file_info *temp = p->file.aux;
-		vm_alloc_page(VM_FILE, p->va, temp->writable);
+		// struct file_info *temp = p->file.aux;
+		printf("[spt entry]: FILE\n");
+		vm_alloc_page(VM_FILE, p->va, 1);
+		// printf("[1]\n");
 		struct page *child_p = spt_find_page(&thread_current()->spt, p->va);
+		// printf("[2]\n");
+		printf("[3] %p\n");
+
+		printf("[4]\n");
+		child_p->operations = &file_ops;
+		struct file_page *temp = &p->file;
+
+		struct file_page *fp = &child_p->file;
+		// printf("file_backed_initializer, file_page: %p\n", file_page);
+		fp->file = temp->file;
+		fp->offset = temp->offset;
+		fp->length = temp->length;
+		fp->page_read_bytes = temp->page_read_bytes;
+		fp->page_zero_bytes = temp->page_zero_bytes;
+		fp->writable = temp->writable;
 		vm_claim_page(p->va);
+		printf("[5]\n");
 		memcpy(child_p->frame->kva, p->frame->kva, PGSIZE);
+		printf("[6]\n");
 	}
 	else {
-		printf("유효하지 않은 페이지 타입!\n");
+		// printf("유효하지 않은 페이지 타입!\n");
 	}
 }
 

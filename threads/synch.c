@@ -64,13 +64,19 @@ sema_down (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 	ASSERT (!intr_context ());
 	old_level = intr_disable ();
+	// printf("[1]\n");
 	while (sema->value == 0) {
 		// list_push_back (&sema->waiters, &thread_current ()->elem);
+		// printf("[2]\n");
 		list_insert_ordered(&sema->waiters, &thread_current()->elem, cmp_priority, NULL);
+		// printf("[3]\n");
 		thread_block ();
+		// printf("[4]\n");
 	}
 	sema->value--;
+	// printf("[5]\n");
 	intr_set_level (old_level);
+	// printf("[6]\n");
 }
 
 /* Down or "P" operation on a semaphore, but only if the

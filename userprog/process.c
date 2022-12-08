@@ -84,28 +84,29 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	// printf("----------process_fork 시작---------\n");
+	printf("----------process_fork 시작---------\n");
 	struct thread *parent_thread = thread_current();
 	memcpy(&parent_thread->parent_if, if_, sizeof(struct intr_frame)); // kernel stack에 있는 intr_frame을 부모 스레드의 intr_frame에 복사
-	// printf("----------process_fork : memcpy---------\n");
+	printf("----------process_fork : memcpy---------\n");
 	//hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
 	tid_t new_tid = thread_create (name, PRI_DEFAULT, __do_fork, parent_thread); // 새로운 스레드 생성
-	// printf("----------process_fork : thread_create---------\n");
+	printf("----------process_fork : thread_create---------\n");
 
 	if (new_tid == TID_ERROR) {
-		// printf("----------process_fork : tid error---------\n");
+		printf("----------process_fork : tid error---------\n");
 		return TID_ERROR;
 	}
 
 	struct thread *child_thread = get_child_process(new_tid);
-	// printf("----------process_fork : get_child---------\n");
+	printf("----------process_fork : get_child----%p-----\n", child_thread);
+	printf("child_thread->fork_sema: %p\n", &child_thread->fork_sema);
 	sema_down(&child_thread->fork_sema);
-	// printf("----------process_fork : fork sema down---------\n");
+	printf("----------process_fork : fork sema down---------\n");
 	if (child_thread->exit_status == -1) {
-		// printf("----------process_fork : tid error---------\n");
+		printf("----------process_fork : tid error---------\n");
 		return TID_ERROR;
 	}
-	// printf("----------process_fork 끝---------\n");
+	printf("----------process_fork 끝---------\n");
 	return new_tid;
 }
 
@@ -173,20 +174,24 @@ __do_fork (void *aux) {
 	
 	//printf("parent rsp: %p\n", parent_if->rsp);
 	//printf("child rsp: %p\n", if_.rsp);
-	// printf("---------do_fork : memcpy---------\n");
+	printf("---------do_fork : memcpy---------\n");
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
 
 	process_activate (current);
+	printf("---------do_fork : activate---------\n");
+	/* 2. Duplicate PT */
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
+	printf("---------do_fork : init---------\n");
+	/* 2. Duplicate PT */
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt)){
-		//printf("---------do_fork : spt copy error---------\n");
+		printf("---------do_fork : spt copy error---------\n");
 		goto error;
 	}
-	//printf("---------do_fork : spt copy end---------\n");
+	printf("---------do_fork : spt copy end---------\n");
 	// hex_dump(if_.rsp, if_.rsp, USER_STACK - if_.rsp, true);
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
@@ -752,25 +757,25 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
 
-	struct file_info *aux_file_info = (struct file_info *)aux;
+	struct file_page *aux_file_info = (struct file_page *)aux;
 
 	file_seek(aux_file_info->file, aux_file_info->offset);
 	// printf("aux_file_info->file: %d\n", aux_file_info->file);
 	// printf("aux_file_info->read_bytes: %d\n", aux_file_info->read_bytes);
 	// printf("aux_file_info->zero_bytes: %d\n", aux_file_info->zero_bytes);
 	// printf("aux_file_info->offset: %d\n", aux_file_info->offset);
-	int result = file_read(aux_file_info->file, page->frame->kva, aux_file_info->read_bytes);
+	int result = file_read(aux_file_info->file, page->frame->kva, aux_file_info->page_read_bytes);
 	// printf("result: %d\n", result);
 
-	if ( result != (int)aux_file_info->read_bytes)
+	if ( result != (int)aux_file_info->page_read_bytes)
 	{
 		palloc_free_page(page->frame->kva);
 		return false;
+
 	}
 
-	// printf("[4]\n");
-	memset(page->frame->kva + aux_file_info->read_bytes, 0, aux_file_info->zero_bytes);
-	// printf("[5]\n");
+	memset(page->frame->kva + aux_file_info->page_read_bytes, 0, aux_file_info->page_zero_bytes);
+	// printf("게으른 로딩 끝!\n");
 	
 	return true;
 }
@@ -808,12 +813,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		struct file_info *aux_file_info;
-		aux_file_info = (struct file_info *)malloc(sizeof(struct file_info));
+		struct file_page *aux_file_info;
+		aux_file_info = (struct file_page *)malloc(sizeof(struct file_page));
 		aux_file_info->file = file;
 		aux_file_info->offset = ofs;
-		aux_file_info->read_bytes = page_read_bytes;
-		aux_file_info->zero_bytes = page_zero_bytes;
+		aux_file_info->length = read_bytes; // 이거 자꾸 감소하는데 괜찮,,?????;;;; 먼맵에서 한번만 참조했으니 지금은 괜찮~~ 근데 버그일지도~
+		aux_file_info->page_read_bytes = page_read_bytes;
+		aux_file_info->page_zero_bytes = page_zero_bytes;
 		aux_file_info->writable = writable;
 
 		// printf("writable: %d\n", writable);

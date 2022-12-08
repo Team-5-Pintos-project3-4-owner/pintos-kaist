@@ -20,12 +20,12 @@ bool lazy_load_segment(struct page *page, void *aux);
 bool install_page(void *upage, void *kpage, bool writable);
 
 /* Project 3 - Anonymous Page*/
-struct file_info
-{
-    struct file *file;
-    off_t offset;
-    uint32_t read_bytes;
-    uint32_t zero_bytes;
-    bool writable;
-};
+// struct file_info
+// {
+//     struct file *file;
+//     off_t offset;
+//     uint32_t read_bytes;
+//     uint32_t zero_bytes;
+//     bool writable;
+// };
 #endif /* userprog/process.h */

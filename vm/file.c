@@ -4,18 +4,7 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "filesys/file.h"
-
-static bool file_backed_swap_in (struct page *page, void *kva);
-static bool file_backed_swap_out (struct page *page);
-static void file_backed_destroy (struct page *page);
-
-/* DO NOT MODIFY this struct */
-static const struct page_operations file_ops = {
-	.swap_in = file_backed_swap_in,
-	.swap_out = file_backed_swap_out,
-	.destroy = file_backed_destroy,
-	.type = VM_FILE,
-};
+#include "threads/mmu.h"
 
 /* The initializer of file vm */
 void
@@ -26,11 +15,25 @@ vm_file_init (void) {
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
+	printf("file_backed_initializer, page->va: %p\n", page->va);
 	page->operations = &file_ops;
-	void *temp = &page->uninit.aux;
+	struct file_page *temp = (struct file_page *);
 
 	struct file_page *file_page = &page->file;
-	file_page->aux = temp;
+	printf("file_backed_initializer, file_page: %p\n", file_page);
+	file_page->file = temp->file;
+	file_page->offset = temp->offset;
+	file_page->length = temp->length;
+	file_page->page_read_bytes = temp->page_read_bytes;
+	file_page->page_zero_bytes = temp->page_zero_bytes;
+	file_page->writable = temp->writable;
+
+	printf("initializer: %d\n", temp->page_read_bytes);
+	printf("initializer: %d\n", file_page->page_read_bytes);
+
+	// printf("zz\n");
+	// free(temp); // aux로 넘어 온 애였으니까 이제 필요가 없어서 바이바이
+	// printf("zzzzz\n");
 
 	return true;
 }
@@ -77,13 +80,16 @@ do_mmap (void *addr, size_t length, int writable,
 		// printf("read bytes: %d\n", read_bytes);
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		struct file_info *aux_file_info;
-		aux_file_info = (struct file_info *)malloc(sizeof(struct file_info));
+		struct file_page *aux_file_info;
+		aux_file_info = (struct file_page *)malloc(sizeof(struct file_page));
 		aux_file_info->file = file;
 		aux_file_info->offset = offset;
-		aux_file_info->read_bytes = page_read_bytes;
-		aux_file_info->zero_bytes = page_zero_bytes;
+		aux_file_info->length = length;
+		aux_file_info->page_read_bytes = page_read_bytes;
+		aux_file_info->page_zero_bytes = page_zero_bytes;
 		aux_file_info->writable = writable;
+
+		// printf("mmap: page_read_bytes - %d\n", aux_file_info->page_read_bytes);
 
 		if (!vm_alloc_page_with_initializer(VM_FILE, addr,
 											writable, lazy_load_segment, (void *)aux_file_info))
@@ -105,10 +111,59 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	// printf("addr in munmap = %p\n", addr);
-	struct supplemental_page_table *cur_spt = &thread_current()->spt;
-	spt_remove_page(cur_spt, spt_find_page(cur_spt, addr));
+	// printf("addr in munmap = %p\n",  addr);
 
+	/* 
+	1) addr에 대한 매핑 해제 (addr은 동일 프로세스에서 mmap으로 반환된 va)
+	2) 프로세스에 의해 기록된 모든 페이지가 파일에 다시 기록되며, 쓰지 않은 페이지는 기록 x
+	3) 가상 페이지 목록에서 페이지 제거
+	*/
+
+	struct thread *cur = thread_current();
+	struct page *p = spt_find_page(&cur->spt, addr);
+	// printf("do_munmap p->va: %p\n", p->va);
+
+	// addr이 현재 프로세스의 spt에 존재하는지 확인
+	uint32_t read_bytes = p->file.length;
+	uint32_t zero_bytes = (read_bytes == PGSIZE) ? 0 : PGSIZE - (read_bytes % PGSIZE);
+	while (read_bytes > 0 || zero_bytes > 0)
+	{
+
+		struct file_page *fp = (struct file_page *)&p->file;
+		// printf("[0.5] fp: %p\n", fp);
+		uint32_t page_read_bytes = fp->page_read_bytes;
+		// printf("[0.7]\n");
+		uint32_t page_zero_bytes = fp->page_zero_bytes;
+		// printf("[1]\n");
+		// addr에 대한 매핑을 해제
+		p->frame->page = NULL;
+		p->frame = NULL;
+		// printf("[2]\n");
+
+		if (pml4_is_dirty(cur->pml4, addr))
+		{
+			// printf("[3]\n");
+			file_write_at(fp->file, addr, page_read_bytes, fp->offset);
+			// printf("[4]\n");
+			pml4_set_dirty(cur->pml4, addr, 0);
+			// printf("[5]\n");
+		}
+
+		pml4_clear_page(cur->pml4, addr);
+		// printf("[6]\n");
+		spt_remove_page(&cur->spt, p);
+		// printf("[7]\n");
+
+		read_bytes -= page_read_bytes;
+		zero_bytes -= page_zero_bytes;
+		addr += PGSIZE;
+
+		p = spt_find_page(&cur->spt, addr);
+		if (p==NULL){
+			return;
+		}
+	}
+	// printf("hi!\n");
 }
 
 // void do_munmap(void *addr)
