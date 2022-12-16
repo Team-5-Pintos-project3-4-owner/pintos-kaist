@@ -53,9 +53,7 @@ uninit_initialize(struct page *page, void *kva)
 	
 	/* TODO: You may need to fix this function. */
 	bool page_initialize_r = uninit->page_initializer(page, uninit->type, kva);
-	// printf("page: %d\n", page_initialize_r);
 	bool init_r = (init ? init(page, aux) : true);
-	// printf("init: %d\n", init_r);
 	return page_initialize_r && init_r;
 }
 
@@ -63,6 +61,9 @@ uninit_initialize(struct page *page, void *kva)
  * to other page objects, it is possible to have uninit pages when the process
  * exit, which are never referenced during the execution.
  * PAGE will be freed by the caller. */
+/* uninit_page 가 보유한 리소스를 해제.
+   대부분의 페이지가 다른 페이지 객체로 변환되지만 프로세스가 종료될 때 실행 중에는 참조되지 않는 uninit_page가 있을 수 있음
+   호출자가 페이지를 해제 */
 static void
 uninit_destroy(struct page *page)
 {
